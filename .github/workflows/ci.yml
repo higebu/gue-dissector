@@ -10,6 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  commit-messages:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Needed so the action can see the range of commits under review.
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6
+
   lua-format:
     name: StyLua
     runs-on: ubuntu-latest

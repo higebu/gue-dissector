@@ -185,6 +185,15 @@ Set `TSHARK` to use a specific binary. Without Lua support the tests skip
 themselves, and CI fails the build separately if the runner's `tshark` lacks
 it.
 
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/),
+which CI checks with commitlint:
+
+```
+feat: add GUE dissector for Wireshark
+ci: pin setup-uv to an existing tag
+test: stop depending on tshark rendering that varies by version
+```
+
 Formatting:
 
 ```
