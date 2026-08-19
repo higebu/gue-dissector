@@ -1,0 +1,23 @@
+[project]
+name = "gue-dissector-tests"
+version = "0"
+description = "Tests for the GUE Wireshark dissector"
+requires-python = ">=3.9"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.12"]
+
+[tool.uv]
+# Only the tests live here; there is nothing to build or install.
+package = false
+
+[tool.pytest.ini_options]
+# Anchors rootdir here so pytest does not pick up conftest.py files from
+# whatever directory the repository happens to be checked out under.
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

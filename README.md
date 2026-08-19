@@ -170,6 +170,36 @@ ip netns exec gue-a ip link add name gue4 type ipip \
     encap gue encap-sport 6080 encap-dport 6080 encap-remcsum
 ```
 
+## Development
+
+Tests run the dissector over the captures in `captures/` with `tshark` and
+check the fields it produces, so they cover the captures as much as the
+dissector. They need a `tshark` built with Lua, which is the case for the
+Debian and Ubuntu packages:
+
+```
+uv run pytest
+```
+
+Set `TSHARK` to use a specific binary. Without Lua support the tests skip
+themselves, and CI fails the build separately if the runner's `tshark` lacks
+it.
+
+Formatting:
+
+```
+uv run ruff check .
+uv run ruff format .
+stylua .
+```
+
+StyLua is not installable through `uv`: its `release-gitter` build backend
+needs the optional PEP 517 `prepare_metadata_for_build_wheel` hook, which uv
+does not call, so `uv tool install git+...` fails with `Cannot build wheel
+without metadata_directory`. Use `pip install git+https://github.com/johnnymorganz/stylua`,
+a [release binary](https://github.com/JohnnyMorganz/StyLua/releases), or
+`cargo install stylua`. CI uses the upstream action instead.
+
 ## References
 
 * [draft-ietf-intarea-gue-09](https://datatracker.ietf.org/doc/draft-ietf-intarea-gue/) — Generic UDP Encapsulation (expired)
