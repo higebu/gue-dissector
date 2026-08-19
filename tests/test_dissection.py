@@ -99,6 +99,33 @@ class TestRemcsumCapture:
         assert rows == []
 
 
+class TestTruncatedCapture:
+    """A capture cut short by the snaplen must not blow up.
+
+    Asking a Tvb for more bytes than the snaplen kept raises a Lua error
+    rather than the bounds exception a built-in dissector gets, so every
+    range has to be capped by the captured length. Snaplens 44 to 54 leave
+    the GUE header itself half-read.
+
+    A sub-dissector handed a truncated payload still surfaces a Lua error of
+    its own ("Dissector_call: Malformed frame"), which Wireshark's Lua API
+    gives no way to avoid; that is not what these tests are about.
+    """
+
+    @pytest.mark.parametrize("snaplen", [44, 46, 48, 50, 54])
+    def test_no_out_of_bounds_error(self, dissect, truncated_capture, snaplen):
+        rows = dissect(truncated_capture(REMCSUM, snaplen), ("_ws.expert.message",))
+        assert rows, f"snaplen {snaplen} produced no packets at all"
+        for row in rows:
+            assert "out of bounds" not in row[0], row
+
+    @pytest.mark.parametrize("snaplen", [44, 46, 48, 50, 54])
+    def test_header_is_still_reported(self, dissect, truncated_capture, snaplen):
+        """What did fit in the capture is still decoded."""
+        rows = dissect(truncated_capture(REMCSUM, snaplen), ("gue.hlen",))
+        assert [row[0] for row in rows] == ["2", "0"] * 3
+
+
 @pytest.mark.parametrize("capture", [BASIC, REMCSUM])
 class TestCaptureSanity:
     def test_six_frames_all_gue(self, dissect, capture):

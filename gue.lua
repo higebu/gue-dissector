@@ -239,7 +239,11 @@ end
 
 function gue.dissector(tvbuf, pinfo, root)
     local pktlen = tvbuf:reported_length_remaining()
-    if pktlen < 1 then
+    -- Ranges are taken from the captured bytes, and asking for more than the
+    -- snaplen kept raises a Lua error rather than the bounds exception a
+    -- built-in dissector would get, so every length below is capped by this.
+    local caplen = tvbuf:len()
+    if pktlen < 1 or caplen < 1 then
         return 0
     end
 
@@ -274,7 +278,7 @@ function gue.dissector(tvbuf, pinfo, root)
     if control or not hlen_valid then
         ti = root:add(gue, tvbuf:range(0))
     else
-        ti = root:add(gue, tvbuf:range(0, hdr_len))
+        ti = root:add(gue, tvbuf:range(0, math.min(hdr_len, caplen)))
     end
 
     ti:add(pf.variant, tvbuf:range(0, 1))
@@ -288,6 +292,10 @@ function gue.dissector(tvbuf, pinfo, root)
         hlen_ti:add_proto_expert_info(ef_hlen_invalid)
         return pktlen
     end
+    if caplen < 4 then
+        ti:append_text(", truncated by the capture")
+        return pktlen
+    end
 
     local proto_ctype = tvbuf:range(1, 1):uint()
     ti:add(control and pf.ctype or pf.proto, tvbuf:range(1, 1))
@@ -299,9 +307,14 @@ function gue.dissector(tvbuf, pinfo, root)
 
     if not hlen_valid then
         hlen_ti:add_proto_expert_info(ef_hlen_invalid)
-        if pktlen > 4 then
+        if caplen > 4 then
             data_dissector:call(tvbuf:range(4):tvb(), pinfo, root)
         end
+        return pktlen
+    end
+    if caplen < hdr_len then
+        -- The option area and the payload were cut off by the capture.
+        ti:append_text(", truncated by the capture")
         return pktlen
     end
 
@@ -349,6 +362,7 @@ function gue.dissector(tvbuf, pinfo, root)
     end
 
     local remaining = pktlen - hdr_len
+    local cap_remaining = caplen - hdr_len
 
     if control then
         pinfo.cols.info:set(
@@ -363,19 +377,19 @@ function gue.dissector(tvbuf, pinfo, root)
             -- The ExID lives in the payload, so Hlen does not account for it.
             if remaining < GUE_EXID_LEN then
                 ti:add_proto_expert_info(ef_exid_missing)
-            else
+            elseif cap_remaining >= GUE_EXID_LEN then
                 ti:add(pf.exid, tvbuf:range(hdr_len, GUE_EXID_LEN))
                 control_offset = GUE_EXID_LEN
             end
         end
         -- An experimental control message may consist of nothing but the ExID.
-        if remaining - control_offset > 0 then
+        if cap_remaining - control_offset > 0 then
             ti:add(pf.control_payload, tvbuf:range(hdr_len + control_offset))
         end
         return pktlen
     end
 
-    if remaining <= 0 then
+    if remaining <= 0 or cap_remaining <= 0 then
         return pktlen
     end
 

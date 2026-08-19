@@ -26,6 +26,31 @@ def tshark() -> str:
 
 
 @pytest.fixture(scope="session")
+def editcap() -> str:
+    """Path to editcap, used to cut captures short."""
+    path = os.environ.get("EDITCAP") or shutil.which("editcap")
+    if path is None:
+        pytest.skip("editcap not found; set EDITCAP to point at one")
+    return path
+
+
+@pytest.fixture
+def truncated_capture(editcap, tmp_path):
+    """Copy a capture with the frames cut to a snaplen, as a short capture would be."""
+
+    def run(capture: str, snaplen: int) -> str:
+        out = tmp_path / f"snap{snaplen}.pcap"
+        subprocess.run(
+            [editcap, "-s", str(snaplen), str(CAPTURES / capture), str(out)],
+            capture_output=True,
+            check=True,
+        )
+        return str(out)
+
+    return run
+
+
+@pytest.fixture(scope="session")
 def dissect(tshark):
     """Run the dissector over a capture and return the requested fields.
 
@@ -33,12 +58,15 @@ def dissect(tshark):
     """
 
     def run(capture: str, fields, display_filter: str | None = None):
+        # A bare name refers to captures/; a path is taken as given, so tests
+        # can point at a capture they built themselves.
+        path = capture if os.path.isabs(capture) else str(CAPTURES / capture)
         args = [
             tshark,
             "-X",
             f"lua_script:{DISSECTOR}",
             "-r",
-            str(CAPTURES / capture),
+            path,
             "-Tfields",
         ]
         if display_filter is not None:
