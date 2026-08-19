@@ -22,7 +22,14 @@ EXPERT_INFOS = (
     "gue.exid.missing",
 )
 
-HEADER_FIELDS = ("gue.variant", "gue.control", "gue.hlen", "gue.proto", "gue.flags")
+# "gue.control" is deliberately absent: tshark renders FT_BOOLEAN as 0/1 in
+# some versions and False/True in others, so it is asserted with a display
+# filter instead of a field value.
+HEADER_FIELDS = ("gue.variant", "gue.hlen", "gue.proto", "gue.flags")
+
+
+def protocol_chains(dissect, capture, display_filter=None):
+    return [row[0] for row in dissect(capture, ("frame.protocols",), display_filter)]
 
 
 class TestBasicCapture:
@@ -31,8 +38,11 @@ class TestBasicCapture:
     def test_every_frame_is_a_bare_variant_0_header(self, dissect):
         rows = dissect(BASIC, HEADER_FIELDS)
         assert len(rows) == 6
-        # variant 0, data message, Hlen 0, proto 4 (IPIP), no flags
-        assert rows == [["0", "0", "0", "4", "0x0000"]] * 6
+        # variant 0, Hlen 0, proto 4 (IPIP), no flags
+        assert rows == [["0", "0", "4", "0x0000"]] * 6
+
+    def test_every_frame_is_a_data_message(self, dissect):
+        assert len(dissect(BASIC, ("frame.number",), "gue.control == 0")) == 6
 
     def test_inner_icmp_is_dissected(self, dissect):
         rows = dissect(BASIC, ("ip.src", "icmp.type"))
@@ -47,8 +57,11 @@ class TestBasicCapture:
         )
 
     def test_protocol_chain(self, dissect):
-        rows = dissect(BASIC, ("frame.protocols",))
-        assert all(row == ["eth:ethertype:ip:udp:gue:ip:icmp:data"] for row in rows)
+        chains = protocol_chains(dissect, BASIC)
+        # Whether a trailing "data" layer is appended for the ICMP payload
+        # varies between Wireshark versions, so only the hand-off is pinned.
+        assert len(chains) == 6
+        assert all(c.startswith("eth:ethertype:ip:udp:gue:ip:icmp") for c in chains), chains
 
 
 class TestRemcsumCapture:
@@ -69,15 +82,16 @@ class TestRemcsumCapture:
         # Hlen 2 covers the private flags word plus the 4-byte remcsum field.
         # Checksum start 20 is the inner UDP header (right after a 20-byte IPv4
         # header) and offset 26 is its checksum field.
-        assert rows == [["0", "0", "2", "4", "0x0001", "0x80000000", "20", "26"]] * 3
+        assert rows == [["0", "2", "4", "0x0001", "0x80000000", "20", "26"]] * 3
 
     def test_replies_carry_no_extension(self, dissect):
         rows = dissect(REMCSUM, HEADER_FIELDS, display_filter="gue.flags.priv == 0")
-        assert rows == [["0", "0", "0", "4", "0x0000"]] * 3
+        assert rows == [["0", "0", "4", "0x0000"]] * 3
 
     def test_inner_udp_is_dissected(self, dissect):
-        rows = dissect(REMCSUM, ("frame.protocols",), display_filter="gue.flags.priv == 1")
-        assert all(row == ["eth:ethertype:ip:udp:gue:ip:udp:data"] for row in rows)
+        chains = protocol_chains(dissect, REMCSUM, "gue.flags.priv == 1")
+        assert len(chains) == 3
+        assert all(c.startswith("eth:ethertype:ip:udp:gue:ip:udp") for c in chains), chains
 
     def test_surplus_space_is_not_reported(self, dissect):
         """Hlen 2 is fully consumed by the extension, so nothing is left over."""
