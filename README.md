@@ -123,6 +123,24 @@ Generic UDP Encapsulation
 Internet Protocol Version 4, Src: 10.0.0.1, Dst: 10.0.0.2
 ```
 
+### GLB
+
+GitHub's GLB load balancer is the other GUE deployment you are likely to meet.
+It sends plain variant 0 headers on UDP 19523 and carries its chained routing
+in the option area without setting any flag, so point the port preference at
+19523 to see them:
+
+```
+$ tshark -X lua_script:gue.lua -o gue.udp_port:19523 -r glb.pcap \
+    -Tfields -e frame.protocols -e gue.hlen -e gue.surplus
+eth:ethertype:ip:udp:gue:ip     2       00000001c0000232
+```
+
+The header and the tunnelled packet decode; the routing data lands in
+`gue.surplus`, because with no flag set that space is by definition surplus
+(section 3.4) and nothing in the header says how to read it. GLB ships its own
+dissector if you want those fields broken out.
+
 ### Expert infos
 
 | Filter | Meaning |
