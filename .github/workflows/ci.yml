@@ -16,9 +16,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Needed so the action can see the range of commits under review.
+          # Needed to resolve the range of commits under review.
           fetch-depth: 0
-      - uses: wagoid/commitlint-github-action@v6
+
+      # Done against local git rather than with the commitlint action, which
+      # asks the compare API for the push range and so fails outright once a
+      # force-push leaves no common ancestor.
+      - name: Work out the commit range
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+              from="$BASE"
+          elif [ -n "$BEFORE" ] && git merge-base --is-ancestor "$BEFORE" HEAD 2>/dev/null; then
+              from="$BEFORE"
+          else
+              # New branch, or a force-push that rewrote history: the range is
+              # meaningless, so check the head commit alone.
+              from="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          echo "from=$from" >> "$GITHUB_OUTPUT"
+          echo "Linting ${from:-<root>}..HEAD"
+
+      - name: Lint commit messages
+        run: |
+          npx --yes \
+            --package @commitlint/cli \
+            --package @commitlint/config-conventional \
+            commitlint --from "${{ steps.range.outputs.from }}" --to HEAD --verbose
 
   lua-format:
     name: StyLua
