@@ -28,7 +28,16 @@ local GUE_EXID_LEN = 4
 
 local IP_PROTO_IPV6_NONXT = 59 -- "no next header"
 
-local gue = Proto("gue", "Generic UDP Encapsulation")
+-- Wireshark 4.7 ships a less complete built-in "gue" that also claims the
+-- description and several field names, so step aside to a separate namespace
+-- there and let both coexist.
+local has_builtin, builtin_gue = pcall(Dissector.get, "gue")
+local NAME, DESCRIPTION = "gue", "Generic UDP Encapsulation"
+if has_builtin and builtin_gue then
+    NAME, DESCRIPTION = "gue_lua", "Generic UDP Encapsulation (Lua)"
+end
+
+local gue = Proto(NAME, DESCRIPTION)
 
 local variant_names = {
     [0] = "GUE header",
@@ -62,16 +71,22 @@ local ip_proto_names = {
 }
 
 local pf = {
-    variant = ProtoField.uint8("gue.variant", "Variant", base.DEC, variant_names, 0xC0),
+    variant = ProtoField.uint8(
+        NAME .. ".variant",
+        "Variant",
+        base.DEC,
+        variant_names,
+        0xC0
+    ),
     control = ProtoField.bool(
-        "gue.control",
+        NAME .. ".control",
         "Message type",
         8,
         { "Control message", "Data message" },
         0x20
     ),
     hlen = ProtoField.uint8(
-        "gue.hlen",
+        NAME .. ".hlen",
         "Header length",
         base.DEC,
         nil,
@@ -79,46 +94,52 @@ local pf = {
         "Header length in 32-bit words, excluding the first four bytes"
     ),
     proto = ProtoField.uint8(
-        "gue.proto",
+        NAME .. ".proto",
         "Proto",
         base.DEC,
         ip_proto_names,
         0,
         "IP protocol of the encapsulated packet"
     ),
-    ctype = ProtoField.uint8("gue.ctype", "Control type", base.DEC, ctype_names, 0),
-    flags = ProtoField.uint16("gue.flags", "Flags", base.HEX),
+    ctype = ProtoField.uint8(
+        NAME .. ".ctype",
+        "Control type",
+        base.DEC,
+        ctype_names,
+        0
+    ),
+    flags = ProtoField.uint16(NAME .. ".flags", "Flags", base.HEX),
     flags_priv = ProtoField.bool(
-        "gue.flags.priv",
+        NAME .. ".flags.priv",
         "Private flags present",
         16,
         nil,
         GUE_FLAG_PRIV
     ),
     flags_reserved = ProtoField.uint16(
-        "gue.flags.reserved",
+        NAME .. ".flags.reserved",
         "Reserved",
         base.HEX,
         nil,
         0xFFFE
     ),
-    priv_flags = ProtoField.uint32("gue.priv_flags", "Private flags", base.HEX),
+    priv_flags = ProtoField.uint32(NAME .. ".priv_flags", "Private flags", base.HEX),
     priv_remcsum = ProtoField.bool(
-        "gue.priv_flags.remcsum",
+        NAME .. ".priv_flags.remcsum",
         "Remote checksum offload",
         32,
         nil,
         GUE_PFLAG_REMCSUM
     ),
     priv_reserved = ProtoField.uint32(
-        "gue.priv_flags.reserved",
+        NAME .. ".priv_flags.reserved",
         "Reserved",
         base.HEX,
         nil,
         0x7FFFFFFF
     ),
     remcsum_start = ProtoField.uint16(
-        "gue.remcsum.start",
+        NAME .. ".remcsum.start",
         "Checksum start",
         base.DEC,
         nil,
@@ -126,17 +147,17 @@ local pf = {
         "Offset of the checksum computation start within the encapsulated packet"
     ),
     remcsum_offset = ProtoField.uint16(
-        "gue.remcsum.offset",
+        NAME .. ".remcsum.offset",
         "Checksum offset",
         base.DEC,
         nil,
         0,
         "Offset of the checksum field within the encapsulated packet"
     ),
-    ext_fields = ProtoField.bytes("gue.ext_fields", "Extension fields"),
-    surplus = ProtoField.bytes("gue.surplus", "Surplus space"),
-    exid = ProtoField.uint32("gue.exid", "Experimental identifier", base.HEX),
-    control_payload = ProtoField.bytes("gue.control_payload", "Control message"),
+    ext_fields = ProtoField.bytes(NAME .. ".ext_fields", "Extension fields"),
+    surplus = ProtoField.bytes(NAME .. ".surplus", "Surplus space"),
+    exid = ProtoField.uint32(NAME .. ".exid", "Experimental identifier", base.HEX),
+    control_payload = ProtoField.bytes(NAME .. ".control_payload", "Control message"),
 }
 
 gue.fields = {
@@ -160,43 +181,43 @@ gue.fields = {
 }
 
 local ef_variant_reserved = ProtoExpert.new(
-    "gue.variant.reserved",
+    NAME .. ".variant.reserved",
     "Reserved GUE variant",
     expert.group.PROTOCOL,
     expert.severity.WARN
 )
 local ef_direct_bad_version = ProtoExpert.new(
-    "gue.variant.direct.bad_version",
+    NAME .. ".variant.direct.bad_version",
     "Variant 1 payload is neither IPv4 nor IPv6",
     expert.group.PROTOCOL,
     expert.severity.WARN
 )
 local ef_hlen_invalid = ProtoExpert.new(
-    "gue.hlen.invalid",
+    NAME .. ".hlen.invalid",
     "Header length goes past the end of the packet",
     expert.group.MALFORMED,
     expert.severity.ERROR
 )
 local ef_hlen_too_short = ProtoExpert.new(
-    "gue.hlen.too_short",
+    NAME .. ".hlen.too_short",
     "Header length too short for the extension fields the flags call for",
     expert.group.MALFORMED,
     expert.severity.ERROR
 )
 local ef_flags_unknown = ProtoExpert.new(
-    "gue.flags.unknown",
+    NAME .. ".flags.unknown",
     "Unknown flag set",
     expert.group.PROTOCOL,
     expert.severity.WARN
 )
 local ef_priv_flags_unknown = ProtoExpert.new(
-    "gue.priv_flags.unknown",
+    NAME .. ".priv_flags.unknown",
     "Unknown private flag set",
     expert.group.PROTOCOL,
     expert.severity.WARN
 )
 local ef_exid_missing = ProtoExpert.new(
-    "gue.exid.missing",
+    NAME .. ".exid.missing",
     "Control type 255 requires a 4-byte experimental identifier",
     expert.group.MALFORMED,
     expert.severity.ERROR

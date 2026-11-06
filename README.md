@@ -32,9 +32,12 @@ tshark -X lua_script:gue.lua -r capture.pcap
 The UDP port defaults to 6080 and can be changed in
 **Preferences → Protocols → GUE**.
 
-> **Note:** this plugin registers a protocol named `gue`. If your Wireshark ever
-> gains a built-in GUE dissector, the two collide and the plugin fails to load.
-> Remove `gue.lua` at that point.
+> **Note:** Wireshark 4.7 and later ship a built-in dissector named `gue`. There
+> the plugin registers itself as `gue_lua` instead, so its filters become
+> `gue_lua.*` and its preferences sit under
+> **Preferences → Protocols → GUE_LUA**. Both default to UDP 6080 and the plugin
+> wins because it registers later; a **Decode As** entry naming `GUE` selects
+> the built-in dissector, so pick `GUE_LUA` there instead.
 
 ## What it decodes
 
