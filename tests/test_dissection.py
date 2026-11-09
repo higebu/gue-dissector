@@ -10,22 +10,25 @@ import pytest
 BASIC = "gue-linux-basic.pcap"
 REMCSUM = "gue-linux-remcsum.pcap"
 
-# Every expert info gue.lua registers.  If one of these fires on a capture
-# taken from the kernel, either the capture or the dissector is wrong.
+# Every expert info gue.lua registers, without the protocol name in front.
+# If one of these fires on a capture taken from the kernel, either the capture
+# or the dissector is wrong.
 EXPERT_INFOS = (
-    "gue.variant.reserved",
-    "gue.variant.direct.bad_version",
-    "gue.hlen.invalid",
-    "gue.hlen.too_short",
-    "gue.flags.unknown",
-    "gue.priv_flags.unknown",
-    "gue.exid.missing",
+    "variant.reserved",
+    "variant.direct.bad_version",
+    "hlen.invalid",
+    "hlen.too_short",
+    "flags.unknown",
+    "priv_flags.unknown",
+    "exid.missing",
 )
 
-# "gue.control" is deliberately absent: tshark renders FT_BOOLEAN as 0/1 in
-# some versions and False/True in others, so it is asserted with a display
-# filter instead of a field value.
-HEADER_FIELDS = ("gue.variant", "gue.hlen", "gue.proto", "gue.flags")
+
+def header_fields(gue):
+    # "control" is deliberately absent: tshark renders FT_BOOLEAN as 0/1 in
+    # some versions and False/True in others, so it is asserted with a display
+    # filter instead of a field value.
+    return (f"{gue}.variant", f"{gue}.hlen", f"{gue}.proto", f"{gue}.flags")
 
 
 def protocol_chains(dissect, capture, display_filter=None):
@@ -35,14 +38,14 @@ def protocol_chains(dissect, capture, display_filter=None):
 class TestBasicCapture:
     """ICMP echo over IPv4-in-GUE, plain header."""
 
-    def test_every_frame_is_a_bare_variant_0_header(self, dissect):
-        rows = dissect(BASIC, HEADER_FIELDS)
+    def test_every_frame_is_a_bare_variant_0_header(self, dissect, gue):
+        rows = dissect(BASIC, header_fields(gue))
         assert len(rows) == 6
         # variant 0, Hlen 0, proto 4 (IPIP), no flags
         assert rows == [["0", "0", "4", "0x0000"]] * 6
 
-    def test_every_frame_is_a_data_message(self, dissect):
-        assert len(dissect(BASIC, ("frame.number",), "gue.control == 0")) == 6
+    def test_every_frame_is_a_data_message(self, dissect, gue):
+        assert len(dissect(BASIC, ("frame.number",), f"{gue}.control == 0")) == 6
 
     def test_inner_icmp_is_dissected(self, dissect):
         rows = dissect(BASIC, ("ip.src", "icmp.type"))
@@ -56,12 +59,12 @@ class TestBasicCapture:
             * 3
         )
 
-    def test_protocol_chain(self, dissect):
+    def test_protocol_chain(self, dissect, gue):
         chains = protocol_chains(dissect, BASIC)
         # Whether a trailing "data" layer is appended for the ICMP payload
         # varies between Wireshark versions, so only the hand-off is pinned.
         assert len(chains) == 6
-        assert all(c.startswith("eth:ethertype:ip:udp:gue:ip:icmp") for c in chains), chains
+        assert all(c.startswith(f"eth:ethertype:ip:udp:{gue}:ip:icmp") for c in chains), chains
 
 
 class TestRemcsumCapture:
@@ -72,11 +75,16 @@ class TestRemcsumCapture:
     coming back through the tunnel without it.
     """
 
-    def test_requests_carry_private_flags_and_remcsum(self, dissect):
+    def test_requests_carry_private_flags_and_remcsum(self, dissect, gue):
         rows = dissect(
             REMCSUM,
-            (*HEADER_FIELDS, "gue.priv_flags", "gue.remcsum.start", "gue.remcsum.offset"),
-            display_filter="gue.flags.priv == 1",
+            (
+                *header_fields(gue),
+                f"{gue}.priv_flags",
+                f"{gue}.remcsum.start",
+                f"{gue}.remcsum.offset",
+            ),
+            display_filter=f"{gue}.flags.priv == 1",
         )
         assert len(rows) == 3
         # Hlen 2 covers the private flags word plus the 4-byte remcsum field.
@@ -84,18 +92,18 @@ class TestRemcsumCapture:
         # header) and offset 26 is its checksum field.
         assert rows == [["0", "2", "4", "0x0001", "0x80000000", "20", "26"]] * 3
 
-    def test_replies_carry_no_extension(self, dissect):
-        rows = dissect(REMCSUM, HEADER_FIELDS, display_filter="gue.flags.priv == 0")
+    def test_replies_carry_no_extension(self, dissect, gue):
+        rows = dissect(REMCSUM, header_fields(gue), display_filter=f"{gue}.flags.priv == 0")
         assert rows == [["0", "0", "4", "0x0000"]] * 3
 
-    def test_inner_udp_is_dissected(self, dissect):
-        chains = protocol_chains(dissect, REMCSUM, "gue.flags.priv == 1")
+    def test_inner_udp_is_dissected(self, dissect, gue):
+        chains = protocol_chains(dissect, REMCSUM, f"{gue}.flags.priv == 1")
         assert len(chains) == 3
-        assert all(c.startswith("eth:ethertype:ip:udp:gue:ip:udp") for c in chains), chains
+        assert all(c.startswith(f"eth:ethertype:ip:udp:{gue}:ip:udp") for c in chains), chains
 
-    def test_surplus_space_is_not_reported(self, dissect):
+    def test_surplus_space_is_not_reported(self, dissect, gue):
         """Hlen 2 is fully consumed by the extension, so nothing is left over."""
-        rows = dissect(REMCSUM, ("gue.surplus",), display_filter="gue.surplus")
+        rows = dissect(REMCSUM, (f"{gue}.surplus",), display_filter=f"{gue}.surplus")
         assert rows == []
 
 
@@ -120,16 +128,16 @@ class TestTruncatedCapture:
             assert "out of bounds" not in row[0], row
 
     @pytest.mark.parametrize("snaplen", [44, 46, 48, 50, 54])
-    def test_header_is_still_reported(self, dissect, truncated_capture, snaplen):
+    def test_header_is_still_reported(self, dissect, gue, truncated_capture, snaplen):
         """What did fit in the capture is still decoded."""
-        rows = dissect(truncated_capture(REMCSUM, snaplen), ("gue.hlen",))
+        rows = dissect(truncated_capture(REMCSUM, snaplen), (f"{gue}.hlen",))
         assert [row[0] for row in rows] == ["2", "0"] * 3
 
 
 @pytest.mark.parametrize("capture", [BASIC, REMCSUM])
 class TestCaptureSanity:
-    def test_six_frames_all_gue(self, dissect, capture):
-        assert len(dissect(capture, ("frame.number",), display_filter="gue")) == 6
+    def test_six_frames_all_gue(self, dissect, gue, capture):
+        assert len(dissect(capture, ("frame.number",), display_filter=gue)) == 6
 
     def test_tunnel_endpoints(self, dissect, capture):
         """The underlay is 198.51.100.0/24 and the overlay is 10.0.0.0/24."""
@@ -145,5 +153,5 @@ class TestCaptureSanity:
         assert all(row[0].startswith("6080") for row in rows)
 
     @pytest.mark.parametrize("expert", EXPERT_INFOS)
-    def test_no_expert_info_fires(self, dissect, capture, expert):
-        assert dissect(capture, ("frame.number",), display_filter=expert) == []
+    def test_no_expert_info_fires(self, dissect, gue, capture, expert):
+        assert dissect(capture, ("frame.number",), display_filter=f"{gue}.{expert}") == []
