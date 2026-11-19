@@ -60,7 +60,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # renovate: datasource=github-releases depName=JohnnyMorganz/StyLua
-          version: 2.5.2
+          version: 2.6.0
           args: --check .
 
   python-lint:
